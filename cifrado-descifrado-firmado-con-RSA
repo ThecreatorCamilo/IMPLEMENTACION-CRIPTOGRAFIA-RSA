@@ -1,0 +1,290 @@
+import random  # Módulo para generar números aleatorios, utilizado en la generación de primos y en pruebas de primalidad
+from getpass import getpass  # Para solicitar contraseñas sin mostrarlas en pantalla
+from math import gcd  # Para calcular el máximo común divisor, utilizado en la generación de claves RSA
+import hashlib  # Para realizar funciones hash (SHA-256) en contraseñas y mensajes
+
+# =================== FUNCIONES DE SEGURIDAD ===================
+
+def hash_contraseña(password):
+    """
+    Recibe una cadena 'password' y devuelve su representación SHA-256 en hexadecimal.
+    Esto permite almacenar la contraseña de forma segura (sin guardar texto plano).
+    """
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verificar_contraseña(password, hash_guardado):
+    # Verifica si la contraseña proporcionada coincide con el hash almacenado.
+    return hash_contraseña(password) == hash_guardado
+
+# =================== FUNCIONES DE NÚMEROS ===================
+
+def es_primo(n):
+    # Verifica si un número 'n' es primo.
+    if n < 2:
+        return False
+    if n == 2:
+        return True
+    if n % 2 == 0:
+        return False
+    d, r = n - 1, 0
+    while d % 2 == 0:
+        d //= 2
+        r += 1
+    for _ in range(8):
+        a = random.randrange(2, n - 1)
+        x = pow(a, d, n)
+        if x in (1, n - 1):
+            continue
+        for _ in range(r - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
+def generar_primo(bits=512):
+    # Genera un número primo aleatorio con 'bits' bits.
+    while True:
+        candidato = random.getrandbits(bits) | (1 << (bits - 1)) | 1
+        if es_primo(candidato):
+            return candidato
+
+def generar_primos_distintos():
+    # Genera dos números primos distintos aleatorios.
+    p = generar_primo()
+    q = generar_primo()
+    while p == q:
+        q = generar_primo()
+    return p, q
+
+def euclides_extendido(a, b):
+    # Implementación del algoritmo de Euclides extendido para encontrar el inverso modular.
+    if b == 0:
+        return a, 1, 0
+    d, x1, y1 = euclides_extendido(b, a % b)
+    return d, y1, x1 - (a // b) * y1
+
+def inverso_modular(e, phi):
+    # Calcula el inverso modular de 'e' en el campo de enteros de tamaño 'phi'.
+    d, x, _ = euclides_extendido(e, phi)
+    return x % phi if d == 1 else None
+
+# *** FUNCIONES RSA ***
+
+def generar_claves():
+    # Genera claves RSA pública y privada
+    print("Generando claves RSA...")
+    p, q = generar_primos_distintos()
+    n = p * q
+    phi = (p - 1) * (q - 1)
+    e = 65537 # Nmero 4 de Fermat
+    if gcd(e, phi) != 1:
+        for candidato in range(3, phi, 2):
+            if gcd(candidato, phi) == 1:
+                e = candidato
+                break
+    d = inverso_modular(e, phi)
+    return {'publica': (e, n), 'privada': (d, n), 'p': p, 'q': q}
+
+def firmar(mensaje, clave):
+    # Firma un mensaje con la clave privada RSA
+    d, n = clave
+    hash_bytes = hashlib.sha256(mensaje.encode()).digest()
+    return pow(int.from_bytes(hash_bytes, 'big'), d, n)
+
+def verificar(mensaje, firma, clave):
+    # Verifica la firma RSA de un mensaje
+    e, n = clave
+    hash_bytes = hashlib.sha256(mensaje.encode()).digest()
+    return int.from_bytes(hash_bytes, 'big') == pow(firma, e, n)
+
+# =================== CIFRADO NUMÉRICO ===================
+
+def cifrar_numero(m, clave_publica):
+    # Cifra un número entero con la clave pública RSA
+    e, n = clave_publica
+    return pow(m, e, n)
+
+def descifrar_numero(c, clave_privada):
+    # Descifra un número entero con la clave privada RSA
+    d, n = clave_privada
+    return pow(c, d, n)
+
+# =================== DATOS INICIALES ===================
+
+usuarios = {
+    # Diccionario que asocia usuario -> hash de contraseña (almacenado de forma segura)
+    "admin": hash_contraseña("123"),
+    "Camilo": hash_contraseña("Velandia"),
+    "Luciana": hash_contraseña("Moran"),
+    "John": hash_contraseña("Jaimes")
+}
+# Estructuras para almacenar datos por usuario:
+diarios = {}            # Para guardar entradas de texto (no se usa en este ejemplo, pero reservado)
+claves_usuarios = {}    # Para guardar las claves RSA de cada usuario
+entradas_numericas = {} # Para guardar entradas numéricas cifradas por usuario
+mensajes = {}           # Para guardar mensajes cifrados enviados entre usuarios
+
+# =================== SISTEMA ===================
+
+print("Bienvenido a tu Repositorio Personal Protegido con RSA")
+
+activo = True  # Controla el bucle general del programa
+
+while activo:
+    # Solicita credenciales al usuario
+    usuario = input("Usuario: ").strip()
+    contrasena = getpass("Contraseña: ")
+
+    # Verifica que el usuario exista y la contraseña proporcionada coincida con el hash almacenado
+    if usuario in usuarios and verificar_contraseña(contrasena, usuarios[usuario]):
+        print(f"\n Bienvenido/a, {usuario}")
+
+        # Genera (o recupera) las claves RSA para este usuario
+        claves_usuarios.setdefault(usuario, generar_claves())
+        # Inicializa las estructuras para este usuario si no existen
+        diarios.setdefault(usuario, [])
+        entradas_numericas.setdefault(usuario, [])
+        mensajes.setdefault(usuario, [])
+
+        claves = claves_usuarios[usuario]
+
+        # Bucle de sesión de usuario: muestra opciones hasta que cierre sesión o salga
+        while True:
+            print("\nOpciones:")
+            print("1. Nueva entrada")
+            print("2. Visualizar entradas")
+            print("3. Borrar entradas")
+            print("4. Enviar mensaje a otro usuario")
+            print("5. Ver bandeja de entrada")
+            print("6. Cerrar sesión")
+            print("7. Salir")
+
+            opcion = input("Selecciona: ").strip()
+
+            if opcion == '1':
+                # Mostrar las entradas numéricas actuales del usuario
+                print("\n Entradas actuales:")
+                if entradas_numericas[usuario]:
+                    for i, e in enumerate(entradas_numericas[usuario]):
+                        print(f"[N{i+1}] Número: {e['numero']}")
+                else:
+                    print("No hay entradas numéricas aún.")
+
+                # Pregunta al usuario si desea agregar una nueva entrada
+                agregar = input("\n¿Quieres agregar una nueva entrada? (si/no): ").strip().lower()
+                if agregar == 'si':
+                    try:
+                        numero = int(input("Número: "))
+                        # Cifra y descifra el número usando las claves del usuario para demostrar cifrado/descifrado
+                        cifrado = cifrar_numero(numero, claves['publica'])
+                        descifrado = descifrar_numero(cifrado, claves['privada'])
+                        # Guarda la entrada con número original, cifrado y descifrado
+                        entradas_numericas[usuario].append({
+                            'numero': numero,
+                            'cifrado': cifrado,
+                            'descifrado': descifrado
+                        })
+                        print("Número guardado.")
+                    except Exception as e:
+                        print(f"Error: {e}")
+                else:
+                    print("No se agregó ninguna entrada.")
+
+            elif opcion == '2':
+                # Mostrar detalles de una entrada numérica específica
+                entradas = entradas_numericas[usuario]
+                if not entradas:
+                    print(" Sin entradas numéricas.")
+                    continue
+                for i, e in enumerate(entradas):
+                    print(f"[N{i+1}] Número: {e['numero']}")
+                try:
+                    idx = int(input("Número de entrada numérica para detalles: ")[1:]) - 1
+                    if idx < 0 or idx >= len(entradas):
+                        raise IndexError
+                    entrada = entradas[idx]
+                    print("\n Detalles numéricos:")
+                    print("Número original:", entrada['numero'])
+                    print("Número cifrado:", entrada['cifrado'])
+                    print("Número descifrado:", entrada['descifrado'])
+                except (ValueError, IndexError):
+                    print(" Entrada inválida.")
+
+            elif opcion == '3':
+                # Borra todas las entradas numéricas del usuario
+                if entradas_numericas[usuario]:
+                    entradas_numericas[usuario].clear()
+                    print(" Entradas numéricas borradas.")
+                else:
+                    print("No hay entradas numéricas.")
+
+            elif opcion == '4':
+                # Enviar un mensaje numérico (cifrado y firmado) a otro usuario
+                destinatario = input("Enviar a (usuario): ").strip()
+                # Verifica que no se envíe a sí mismo
+                if destinatario == usuario:
+                    print(" No puedes enviarte mensajes a ti mismo.")
+                    continue
+                # Verifica que el destinatario exista en el sistema
+                if destinatario not in usuarios:
+                    print(" Usuario no encontrado.")
+                    continue
+                try:
+                    numero = int(input("Número a enviar: "))
+                    # Asegura que el destinatario tenga sus claves RSA generadas
+                    claves_dest = claves_usuarios.setdefault(destinatario, generar_claves())
+                    # Cifra el número con la clave pública del destinatario
+                    cifrado = cifrar_numero(numero, claves_dest['publica'])
+                    # Descifra (solo para demostrar que funciona; no se guarda la versión descifrada en mensajes)
+                    descifrado = descifrar_numero(cifrado, claves_dest['privada'])
+                    # Firma el número original con la clave privada del emisor
+                    firma = firmar(str(numero), claves['privada'])
+                    # Guarda el mensaje en la bandeja de entrada del destinatario
+                    mensajes.setdefault(destinatario, []).append({
+                        'emisor': usuario,
+                        'numero': numero,
+                        'cifrado': cifrado,
+                        'firma': firma
+                    })
+                    print(" Mensaje numérico enviado.")
+                except Exception as e:
+                    print(f" Error: {e}")
+
+            elif opcion == '5':
+                # Ver la bandeja de entrada: muestra mensajes recibidos y verifica las firmas
+                inbox = mensajes.get(usuario, [])
+                if not inbox:
+                    print(" Bandeja de entrada vacía.")
+                else:
+                    for i, msg in enumerate(inbox):
+                        print(f"\n[{i+1}] De: {msg['emisor']}")
+                        print("Mensaje numérico:")
+                        print("Número original:", msg['numero'])
+                        print("Número cifrado:", msg['cifrado'])
+                        # Verifica que la firma coincida con el número original y la clave pública del emisor
+                        verificado = verificar(
+                            str(msg['numero']),
+                            msg['firma'],
+                            claves_usuarios[msg['emisor']]['publica']
+                        )
+                        print("Firma válida." if verificado else "Firma inválida.")
+
+            elif opcion == '6':
+                # Cierra la sesión del usuario actual y regresa al prompt de login
+                print(f" Cerrando sesión de {usuario}.")
+                break
+
+            elif opcion == '7':
+                # Sale por completo del programa
+                print(" Saliendo del programa. ¡Hasta luego!")
+                activo = False
+                break
+
+            else:
+                print(" Opción inválida, intente nuevamente.")
+
+    else:
+        # Si la credencial es invalida, muestra mensaje de error y solicita de nuevo
+        print(" Usuario o contraseña incorrectos. Intente de nuevo.")
